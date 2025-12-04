@@ -10,6 +10,7 @@ class LLMService:
     
     async def load(self):
         await self.client.pull(self.model_name)
+        
     
     async def unload(self):
         pass

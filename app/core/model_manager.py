@@ -19,7 +19,7 @@ class ModelManager:
         self.loaded_service: Optional[ModelService] = None
         self.lock = asyncio.Lock()
     
-    async def load_model(self, service: ModelService):
+    async def load(self, service: ModelService):
         async with self.lock:
             if self.loaded_service == service:
                 return
@@ -31,7 +31,7 @@ class ModelManager:
             if not self._has_enough_vram(required):
                 raise RuntimeError(f"Insufficient VRAM: need {required}MB, have {self._get_free_vram_mb()}MB")
             
-            await service.load()
+            await asyncio.to_thread(service.load)
             self.loaded_service = service
             logger.info(f"Loaded {service.__class__.__name__}")
     

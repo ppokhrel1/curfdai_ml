@@ -4,7 +4,7 @@ from pathlib import Path
 import time
 
 class ImageService:
-    def __init__(self, model_id: str, output_dir: str):
+    def __init__(self, model_id: str, output_dir: str = 'workspace'):
         self.model_id = model_id
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -18,6 +18,7 @@ class ImageService:
             cache_dir="/cache"
         ).to("cuda")
         self.pipeline.enable_vae_slicing()
+        
     
     async def unload(self):
         self.pipeline = None

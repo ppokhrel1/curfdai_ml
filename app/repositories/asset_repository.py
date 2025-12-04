@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from typing import List, Dict, Any, Optional
-from models.db_models import AssetFile, GeneratedAsset
+from app.models.db_models import AssetFile, GeneratedAsset
 import json
 import uuid
 
@@ -22,7 +22,7 @@ class AssetRepository:
             path=path,
             file_type=file_type,
             filesize=filesize,
-            metadata=metadata
+            file_metadata=metadata
         )
         self.session.add(asset_file)
         await self.session.flush()
@@ -41,7 +41,7 @@ class AssetRepository:
             resource_id=resource_id,
             target_format=target_format,
             file_id=file_id,
-            metadata=metadata
+            file_metadata=metadata
         )
         self.session.add(asset)
         await self.session.flush()
@@ -74,7 +74,7 @@ class AssetRepository:
                 path=f"{model_name}/{filename}",
                 file_type=filename.split('.')[-1],
                 filesize=len(content),
-                metadata=assembly_plan
+                file_metadata=assembly_plan
             )
             
             await self.create_generated_asset(

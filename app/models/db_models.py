@@ -14,7 +14,7 @@ class AssetFile(Base):
     path: Mapped[str] = mapped_column(Text)
     file_type: Mapped[str] = mapped_column(String(20))
     filesize: Mapped[int] = mapped_column(Integer)
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    file_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     generated_assets: Mapped[List["GeneratedAsset"]] = relationship(back_populates="file", cascade="all, delete-orphan")
 
 class GeneratedAsset(Base):
@@ -24,5 +24,5 @@ class GeneratedAsset(Base):
     resource_id: Mapped[str] = mapped_column(String(36))
     target_format: Mapped[str] = mapped_column(String(50))
     file_id: Mapped[str] = mapped_column(ForeignKey("asset_files.id"))
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    file_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     file: Mapped[AssetFile] = relationship(back_populates="generated_assets")

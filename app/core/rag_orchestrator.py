@@ -14,7 +14,7 @@ from app.storage.cache_manager import CacheManager
 from app.core.model_manager import ModelManager
 from app.repositories.asset_repository import AssetRepository
 from app.configs.config import config
-
+from app.db.engine import DatabaseManager
 logger = logging.getLogger(__name__)
 
 class SelfHostedRAGSystem:
@@ -32,19 +32,19 @@ class SelfHostedRAGSystem:
     async def llm(self) -> LLMService:
         if not self._llm:
             self._llm = LLMService(config.LLM_MODEL)
-            await self.model_manager.load_model(self._llm)
+            await self.model_manager.load(self._llm)
         return self._llm
     
     async def image(self) -> ImageService:
         if not self._image:
             self._image = ImageService(config.SDXL_MODEL, f"{config.OUTPUT_DIR}/images")
-            await self.model_manager.load_model(self._image)
+            await self.model_manager.load(self._image)
         return self._image
     
     async def hunyuan(self) -> Hunyuan3DService:
         if not self._hunyuan:
             self._hunyuan = Hunyuan3DService(config.HUNYUAN_MODEL, f"{config.OUTPUT_DIR}/meshes")
-            await self.model_manager.load_model(self._hunyuan)
+            await self.model_manager.load(self._hunyuan)
         return self._hunyuan
     
     async def generate_complete_model(self, user_prompt: str) -> Dict[str, Any]:
@@ -145,7 +145,7 @@ class SelfHostedRAGSystem:
         meshes: List[Dict]
     ) -> str:
         """Store in PostgreSQL using ORM"""
-        from db.engine import DatabaseManager
+        
         
         db = DatabaseManager(config.DATABASE_URL)
         async with db.async_session() as session:

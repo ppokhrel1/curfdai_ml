@@ -13,33 +13,24 @@ from hy3dgen.rembg import BackgroundRemover
 
 from supabase import create_client
 
+from app.configs.config import config
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# The RunPod serverless template often mounts the workspace volume here.
-MODELS_BASE_PATH = "/runpod-volume/models" 
 
-# Model paths
-HUNYUAN3D_LOCAL_PATH = os.path.join(MODELS_BASE_PATH, "hunyuan3d-2") 
-
-HUNYUAN3D_TEXT_TO_IMG_LOCAL_PATH = os.path.join(MODELS_BASE_PATH, "hunyuan_text_to_img") 
-
-# Configuration
-class Config:
-    SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+HUNYUAN3D_TEXT_TO_IMG_LOCAL_PATH = config.HUNYUAN_LOCAL_PATH + "/" + 'hunyuan_text_to_img'
 
 
 # Supabase client
 def get_supabase_client():
-    print("supabase", Config.SUPABASE_KEY, Config.SUPABASE_URL)
-    if not Config.SUPABASE_URL or not Config.SUPABASE_KEY:
+    print("supabase", config.SUPABASE_KEY, config.SUPABASE_URL)
+    if not config.SUPABASE_URL or not config.SUPABASE_KEY:
         return None
     try:
-        return create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
+        return create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
     except Exception as e:
         logger.error(f"Supabase client failed: {e}")
         return None
@@ -51,8 +42,8 @@ def get_hunyuan_dit_pipeline():
     if _hunyuan_dit_pipeline is None:
         try:
             # You might want to pre-load this model locally if possible, similar to Hunyuan3D
-            _hunyuan_dit_pipeline = HunyuanDiTPipeline(model_path=HUNYUAN3D_TEXT_TO_IMG_LOCAL_PATH, 
-                                                       device=Config.DEVICE)
+            _hunyuan_dit_pipeline = HunyuanDiTPipeline(model_path=config.HUNYUAN3D_TEXT_TO_IMG_LOCAL_PATH, 
+                                                       device=config.DEVICE)
             _hunyuan_dit_pipeline.compile() # Optional, but good for hot-start
             logger.info("HunyuanDiT 2D pipeline loaded.")
         except Exception as e:
@@ -61,27 +52,24 @@ def get_hunyuan_dit_pipeline():
     return _hunyuan_dit_pipeline
 
 class Hunyuan3DService:
-    def __init__(self):
+    def __init__(self, hunyuan_model: str = None, output_dir: str = None):
         self.model = None
         self.supabase = get_supabase_client()
         self.dit_pipeline = get_hunyuan_dit_pipeline()
-    def load_model(self):
+        self.output_dir = output_dir or "/app/output/meshes"
+        self.hunyuan_model = hunyuan_model or config.HUNYUAN_LOCAL_PATH
+        self._memory_mb = 12000
+
+    def load(self):
         if self.model is not None:
             return
         
-        # --- CHECK LOCAL PATH
-        if not os.path.exists(HUNYUAN3D_LOCAL_PATH):
-            raise FileNotFoundError(
-                f"Hunyuan3D model not found at expected path: {HUNYUAN3D_LOCAL_PATH}. "
-                "Automatic download is disabled. Please ensure the model is pre-loaded."
-            )
-        
         # Load model from local path
         self.model_image = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            HUNYUAN3D_LOCAL_PATH,
+            self.hunyuan_model,
             #subfolder='hunyuan3d-dit-v2-mini-turbo',
             subfolder = 'hunyuan3d-dit-v2-mv-turbo',
-            device_map=Config.DEVICE,
+            device_map=config.DEVICE,
             #variant='fp16',
             use_safetensors=False,
             local_files_only=True
@@ -90,6 +78,7 @@ class Hunyuan3DService:
         self.model_image.enable_flashvdm(topk_mode='merge')
         # self.model_tex.enable_flashvdm(topk_mode='merge')
         logger.info("Hunyuan3D model loaded from local path")
+        
 
     def upload_to_supabase(self, file_bytes: bytes, filename: str, content_type: str, file_path: str = "generated_models") -> str:
         if not self.supabase:
@@ -211,4 +200,7 @@ class Hunyuan3DService:
         except Exception as e:
             logger.error(f"3D generation failed: {e}")
             return {"status": "error", "error": str(e)}
+        
+    def get_memory_usage_mb(self) -> float:
+        return self._memory_mb
        
