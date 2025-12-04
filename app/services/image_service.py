@@ -29,6 +29,6 @@ class ImageService:
     async def generate(self, prompt: str, width: int = 1024, height: int = 1024) -> str:
         image = self.pipeline(prompt, width=width, height=height, num_inference_steps=30).images[0]
         path = self.output_dir / f"{int(time.time())}.png"
-        image.save(path)
+        #image.save(path)
         #save to supabase
-        return str(path)
+        return str(path), image

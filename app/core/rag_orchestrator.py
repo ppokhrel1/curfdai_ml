@@ -3,7 +3,7 @@ import uuid
 import json
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import asyncio
 
 from app.services.llm_service import LLMService
@@ -59,16 +59,20 @@ class SelfHostedRAGSystem:
             requirements = await self._analyze_requirements(user_prompt)
             self.cache.set(cache_key, requirements)
         
-        # 2. Generate concept image
-        image_url = await self._generate_and_upload_image(
-            f"{requirements['primary_function']} {requirements['model_type']}"
-        )
-        
+        # generate image for each part and create a mesh from that image
+        mesh_tasks = []
+        for part in requirements['key_components']:
+            image_url, image = await self._generate_and_upload_image(
+                f"{requirements['primary_function']} {requirements['model_type']}"
+            )
+            
+            val = self._generate_and_upload_mesh_from_images(image, requirements['primary_function'])
+            mesh_tasks.append(val)
         # 3. Generate meshes for components
-        mesh_tasks = [
-            self._generate_and_upload_mesh(part, requirements['primary_function'])
-            for part in requirements['key_components']
-        ]
+        # mesh_tasks = [
+        #     self._generate_and_upload_mesh(part, requirements['primary_function'])
+        #     for part in requirements['key_components']
+        # ]
         meshes = await asyncio.gather(*mesh_tasks)
         
         # 4. Create assembly plan
@@ -96,15 +100,28 @@ class SelfHostedRAGSystem:
         llm = await self.llm()
         return await llm.generate_json(f"{system_prompt}\n\nPrompt: {prompt}")
     
-    async def _generate_and_upload_image(self, prompt: str) -> str:
-        image_path = await (await self.image()).generate(prompt, width=1024, height=1024)
-        with open(image_path, "rb") as f:
-            return await self.supabase.upload(f.read(), f"images/{uuid.uuid4()}.png", "image/png")
-    
+    async def _generate_and_upload_image(self, prompt: str) -> Tuple[str, Any]:
+        image_path, image = await (await self.image()).generate(prompt, width=1024, height=1024)
+        url = await self.supabase.upload(
+            image, f"images/{uuid.uuid4()}.png", "image/png"
+        )
+        return url, image
+
     async def _generate_and_upload_mesh(self, part_name: str, function: str) -> Dict[str, Any]:
         results = await (await self.hunyuan()).generate_3d_asset({
             "prompt": f"3D model of {part_name} for {function}",
             "type": "text",
+            "filename": part_name.replace(' ', '_')
+        })
+        result = results.get('download_url', '')
+        if result:
+            return {"part_name": part_name, "url": result['download_url']}
+        return {"part_name": part_name, "url": None}
+    
+    async def _generate_and_upload_mesh_from_images(self, images, part_name: str) -> Dict[str, Any]:
+        results = await (await self.hunyuan()).generate_3d_asset({
+            "images": images,
+            "type": "images",
             "filename": part_name.replace(' ', '_')
         })
         result = results.get('download_url', '')

@@ -124,8 +124,8 @@ class Hunyuan3DService:
             temp_files = []
             temp_paths = []
 
-            if input_type == 'image' and input_data.get('image'):
-                gen_args['image'] = [input_data['image']]
+            if input_type == 'images' and input_data.get('images'):
+                gen_args['image'] = input_data['images']
             else:
                 prompt_temp = prompt
                 logger.info(f"Generating 2D image for prompt: {prompt}")
