@@ -8,7 +8,7 @@ import sys
 from types import ModuleType
 import os
 from types import SimpleNamespace
-
+import torch
 
 def pytest_configure():
     """
@@ -124,25 +124,59 @@ def event_loop():
     yield loop
     loop.close()
 
+
+# Update your test fixture mock to handle the stripping logic
 @pytest.fixture
-def mock_ollama_client():
-    """Mock Ollama at module level before import"""
-    with patch('app.services.llm_service.ollama.AsyncClient') as mock:
-        client = AsyncMock()
-        client.pull = AsyncMock(return_value=None)
-        client.generate = AsyncMock(return_value={
-            "response": json.dumps({
-                "model_name": "robot",
-                "model_type": "robot",
-                "primary_function": "test robot",
-                "key_components": ["wheel", "sensor"],
-                "mobility_type": "wheeled",
-                "environment": "indoor",
-                "complexity_level": "simple"
-            })
-        })
-        mock.return_value = client
-        yield mock
+def mock_hf_client():
+    """Mock Hugging Face components at module level before import"""
+    with patch('app.services.llm_service.AutoTokenizer') as mock_tokenizer_class, \
+         patch('app.services.llm_service.AutoModelForCausalLM') as mock_model_class, \
+         patch('app.services.llm_service.SentenceTransformer') as mock_embed_class:
+        
+        # --- Mock tokenizer ---
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.pad_token = "<pad>"
+        mock_tokenizer.eos_token = "<eos>"
+        
+        def tokenizer_call(text, return_tensors=None, **kwargs):
+            return {"input_ids": torch.tensor([[1, 2, 3]])}
+        mock_tokenizer.__call__ = tokenizer_call
+        
+        def decode_side_effect(tensor, skip_special_tokens=True):
+            # Simulate what happens in _generate_text_sync:
+            # - For input_ids (3 elements), return the prompt
+            # - For outputs (6 elements), return prompt + generated text
+            if tensor.numel() == 3:  # Input tensor
+                return '{"test": "data"}\nRespond only with valid JSON and no additional text.'
+            else:  # Output tensor (generated)
+                # Return prompt + JSON response
+                return '{"test": "data"}\nRespond only with valid JSON and no additional text.\n{"key_components": ["wheel", "sensor"], "summary": "test summary"}'
+        
+        mock_tokenizer.decode = decode_side_effect
+        mock_tokenizer_class.from_pretrained.return_value = mock_tokenizer
+        
+        # --- Mock model ---
+        mock_model = MagicMock()
+        mock_model.device = torch.device("cpu")
+        
+        def generate_side_effect(*args, **kwargs):
+            # Return a tensor with 6 elements (3 input + 3 generated)
+            return torch.tensor([[1, 2, 3, 4, 5, 6]])
+        
+        mock_model.generate = generate_side_effect
+        mock_model_class.from_pretrained.return_value = mock_model
+        
+        # --- Mock embedder ---
+        mock_embedder = MagicMock()
+        mock_embedder.encode.return_value = [0.1] * 384
+        mock_embed_class.return_value = mock_embedder
+        
+        yield {
+            "tokenizer": mock_tokenizer,
+            "model": mock_model,
+            "embedder": mock_embedder,
+        }
+
 
 @pytest.fixture(autouse=True)
 def mock_diffusers_pipeline():

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, Mock
 
 @pytest.mark.asyncio
 async def test_complete_workflow(
-    mock_ollama_client,
+    mock_hf_client,
     mock_supabase,
     mock_redis,
     mock_filesystem,
@@ -301,7 +301,7 @@ model:
     rag.cache.set.assert_called()
 
 @pytest.mark.asyncio
-async def test_vram_sequential_loading(mock_ollama_client, mock_vram):
+async def test_vram_sequential_loading(mock_hf_client, mock_vram):
     """Test GPU memory management without real GPU"""
     rag = SelfHostedRAGSystem()
     
