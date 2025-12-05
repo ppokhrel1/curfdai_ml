@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 import json
 import ollama
 
@@ -34,3 +34,10 @@ class LLMService:
             options=kwargs
         )
         return response["response"]
+    
+    async def get_embedding(self, text: str) -> List[float]:
+        response = await self.client.embeddings(
+            model=self.model_name,
+            prompt=text
+        )
+        return response["embedding"]

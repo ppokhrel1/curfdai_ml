@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import asyncio
 
+from app.helpers.llm_prompt_helpers import _analyze_requirements_with_llm, _create_assembly_plan_with_llm, _generate_model_files, _hybrid_search_parts
 from app.services.llm_service import LLMService
 from app.services.image_service import ImageService
 from app.services.hunyuan3d_service import Hunyuan3DService
@@ -59,38 +60,79 @@ class SelfHostedRAGSystem:
             requirements = await self._analyze_requirements(user_prompt)
             self.cache.set(cache_key, requirements)
         
-        # generate image for each part and create a mesh from that image
-        mesh_tasks = []
-        for part in requirements['key_components']:
-            image_url, image = await self._generate_and_upload_image(
-                f"{requirements['primary_function']} {requirements['model_type']}"
+        start_time = time.time()
+        
+        # Check cache first
+        
+        cached_result = self.cache.get(cache_key)
+        if cached_result:
+            logger.info("Returning cached result")
+            return json.loads(cached_result)
+        
+        try:
+            llm = await self.llm()
+            # Step 1: LLM-based requirement analysis
+            requirements = await _analyze_requirements_with_llm(llm, user_prompt)
+            if isinstance(requirements, list) and requirements:
+                requirements = requirements[0]            
+
+            relevant_parts = await _hybrid_search_parts(llm, requirements)            
+
+            assembly_plan = await _create_assembly_plan_with_llm(llm, requirements, relevant_parts)
+            # Ensure assembly_plan is dict, in case LLM added extra text
+            if isinstance(assembly_plan, list) and assembly_plan:
+                assembly_plan = assembly_plan[0]
+            
+            logger.info(f"Created assembly plan with {len(assembly_plan.get('parts', []))} parts")
+            
+            # Step 4: Generate model files (XACRO, config, and ERB)
+            model_files = await _generate_model_files(llm, assembly_plan)
+            logger.info(f"Generated model files: {list(model_files.keys())}")
+            
+            model_name_prefix = assembly_plan['model_name'] # Use this for Supabase path
+            
+            # Step 5: Store generated assets and link meshes
+            asset_id = await self._store_all_assets(assembly_plan, model_files)
+            
+            uploaded_files = {}
+            
+            for filename, content in model_files.items():
+                content_bytes = content.encode('utf-8')
+                content_type = 'text/plain'
+                
+                download_url = self.supabase.upload(
+                    file_bytes=content_bytes, 
+                    filename=f"{model_name_prefix}/{filename}", 
+                    content_type=content_type
+                )
+                uploaded_files[filename] = download_url
+            spec_content_bytes = json.dumps(assembly_plan, indent=2).encode('utf-8')
+            spec_filename = f"{model_name_prefix}/specification.json"
+            self.supabase.upload(
+                file_bytes=spec_content_bytes, 
+                filename=spec_filename, 
+                content_type="application/json"
             )
             
-            val = self._generate_and_upload_mesh_from_images(image, requirements['primary_function'])
-            mesh_tasks.append(val)
-        # 3. Generate meshes for components
-        # mesh_tasks = [
-        #     self._generate_and_upload_mesh(part, requirements['primary_function'])
-        #     for part in requirements['key_components']
-        # ]
-        meshes = await asyncio.gather(*mesh_tasks)
+            result = {
+                "specification": assembly_plan,
+                "model_files": model_files,
+                "asset_id": asset_id,
+                "requirements": requirements,
+                "generation_time": time.time() - start_time
+            }
+            
+            # Cache result
+            try:
+                self.cache.set(cache_key, 3600, json.dumps(result))  #cache for 1 hour
+            except Exception as e:
+                logger.warning(f"Cache write failed: {e}")
         
-        # 4. Create assembly plan
-        assembly_plan = await self._create_assembly_plan(requirements, meshes)
-        
-        # 5. Generate model files
-        model_files = await self._generate_model_files(assembly_plan)
-        
-        # 6. Store everything in DB
-        asset_id = await self._store_all_assets(assembly_plan, model_files, meshes)
-        
-        return {
-            "asset_id": asset_id,
-            "requirements": requirements,
-            "image_url": image_url,
-            "meshes": meshes,
-            "files": list(model_files.keys())
-        }
+            return result
+                
+        except Exception as e:
+            logger.error(f"Model generation failed: {e}")
+            raise
     
     async def _analyze_requirements(self, prompt: str) -> Dict[str, Any]:
         system_prompt = """You are a mechanical engineering expert. Extract technical requirements from descriptions.
@@ -159,7 +201,7 @@ class SelfHostedRAGSystem:
         self,
         assembly_plan: Dict,
         files: Dict[str, str],
-        meshes: List[Dict]
+        meshes: List[Dict] = []
     ) -> str:
         """Store in PostgreSQL using ORM"""
         
