@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager
 import logging
 import torch
 from app.core.rag_orchestrator import SelfHostedRAGSystem
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
